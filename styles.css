@@ -1,0 +1,32 @@
+:root {
+  color-scheme: light dark;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+body {
+  margin: 0;
+}
+
+.page-header,
+main {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.game-list {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.game-item {
+  border: 1px solid #8884;
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+}
+
+.game-item a {
+  font-weight: 700;
+}
