@@ -1,0 +1,612 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Flappy Bird</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: Arial, Helvetica, sans-serif;
+      }
+
+      body {
+        margin: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 1rem;
+        padding: 1rem;
+        box-sizing: border-box;
+        min-height: 100vh;
+        background: #111;
+        color: #eee;
+      }
+
+      h1 {
+        margin: 0;
+      }
+
+      .stage {
+        position: relative;
+        touch-action: manipulation;
+      }
+
+      canvas {
+        display: block;
+        border: 2px solid #8884;
+        border-radius: 0.5rem;
+        background: #4ec0ca;
+        max-width: 100%;
+        height: auto;
+      }
+
+      .overlay {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        text-align: center;
+        padding: 1rem;
+        background: #0008;
+        color: #fff;
+        border-radius: 0.5rem;
+        cursor: pointer;
+      }
+
+      .overlay.hidden {
+        display: none;
+      }
+
+      .overlay h2 {
+        margin: 0;
+        font-size: 1.5rem;
+      }
+
+      .overlay p {
+        margin: 0;
+      }
+
+      .hint {
+        font-size: 0.9rem;
+        opacity: 0.85;
+      }
+
+      .scoreboard {
+        display: flex;
+        gap: 1.5rem;
+        font-size: 1.1rem;
+      }
+
+      .scoreboard strong {
+        font-size: 1.4rem;
+      }
+
+      .results {
+        width: 100%;
+        max-width: 360px;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+      }
+
+      .results-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 0.5rem;
+      }
+
+      .results-header h2 {
+        margin: 0;
+        font-size: 1.1rem;
+      }
+
+      .results-stats {
+        display: flex;
+        gap: 1rem;
+        font-size: 0.85rem;
+        opacity: 0.9;
+        flex-wrap: wrap;
+      }
+
+      #results-chart {
+        width: 100%;
+        height: auto;
+        background: #1c1c1c;
+        border: 1px solid #8884;
+        border-radius: 0.5rem;
+      }
+
+      .results-actions {
+        display: flex;
+        gap: 0.5rem;
+      }
+
+      .results-actions button {
+        flex: 1;
+        padding: 0.4rem 0.6rem;
+        font-size: 0.85rem;
+        background: #2a2a2a;
+        color: #eee;
+        border: 1px solid #8884;
+        border-radius: 0.4rem;
+        cursor: pointer;
+      }
+
+      .results-actions button:hover {
+        background: #383838;
+      }
+
+      .results-actions button:disabled {
+        opacity: 0.4;
+        cursor: default;
+      }
+
+      a {
+        color: #8ad;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Flappy Bird</h1>
+
+    <div class="scoreboard">
+      <span>Score: <strong id="score">0</strong></span>
+      <span>Best: <strong id="best">0</strong></span>
+    </div>
+
+    <div class="stage">
+      <canvas id="game" width="360" height="540"></canvas>
+      <div class="overlay" id="overlay">
+        <h2 id="overlay-title">Flappy Bird</h2>
+        <p id="overlay-text">Guide the bird through the pipes.</p>
+        <p class="hint">Click, tap, or press Space / ↑ to flap.</p>
+        <p class="hint">Click here to start.</p>
+      </div>
+    </div>
+
+    <section class="results">
+      <div class="results-header">
+        <h2>Results log</h2>
+      </div>
+      <div class="results-stats">
+        <span>Games: <strong id="stat-games">0</strong></span>
+        <span>Best: <strong id="stat-best">0</strong></span>
+        <span>Average: <strong id="stat-avg">0</strong></span>
+      </div>
+      <canvas id="results-chart" width="360" height="160"></canvas>
+      <div class="results-actions">
+        <button id="export-csv" type="button">Download CSV</button>
+        <button id="clear-log" type="button">Clear log</button>
+      </div>
+    </section>
+
+    <p><a href="/">Back to library</a></p>
+
+    <script>
+      const canvas = document.getElementById('game');
+      const ctx = canvas.getContext('2d');
+      const overlay = document.getElementById('overlay');
+      const overlayTitle = document.getElementById('overlay-title');
+      const overlayText = document.getElementById('overlay-text');
+      const scoreEl = document.getElementById('score');
+      const bestEl = document.getElementById('best');
+
+      const WIDTH = canvas.width;
+      const HEIGHT = canvas.height;
+
+      const GRAVITY = 0.45;
+      const FLAP = -7.5;
+      const PIPE_WIDTH = 56;
+      const PIPE_GAP = 150;
+      const PIPE_SPACING = 200;
+      const PIPE_SPEED = 2.2;
+      const GROUND_HEIGHT = 60;
+
+      const BIRD_X = 90;
+      const BIRD_RADIUS = 14;
+
+      const STATE = { READY: 'ready', PLAYING: 'playing', OVER: 'over' };
+
+      const BEST_KEY = 'flappy-bird-best';
+      const LOG_KEY = 'flappy-bird-results';
+
+      let state = STATE.READY;
+      let bird;
+      let pipes;
+      let score;
+      let frame;
+      let best = Number(localStorage.getItem(BEST_KEY)) || 0;
+      let results = loadResults();
+
+      bestEl.textContent = best;
+
+      function reset() {
+        bird = { x: BIRD_X, y: HEIGHT / 2, velocity: 0 };
+        pipes = [];
+        score = 0;
+        frame = 0;
+        scoreEl.textContent = score;
+      }
+
+      function spawnPipe() {
+        const margin = 50;
+        const minTop = margin;
+        const maxTop = HEIGHT - GROUND_HEIGHT - PIPE_GAP - margin;
+        const top = minTop + Math.random() * (maxTop - minTop);
+        pipes.push({ x: WIDTH, top, scored: false });
+      }
+
+      function flap() {
+        if (state === STATE.READY) {
+          startGame();
+          return;
+        }
+        if (state === STATE.OVER) {
+          showReady();
+          return;
+        }
+        bird.velocity = FLAP;
+      }
+
+      function startGame() {
+        reset();
+        state = STATE.PLAYING;
+        overlay.classList.add('hidden');
+        bird.velocity = FLAP;
+      }
+
+      function showReady() {
+        state = STATE.READY;
+        reset();
+        overlayTitle.textContent = 'Flappy Bird';
+        overlayText.textContent = 'Guide the bird through the pipes.';
+        overlay.classList.remove('hidden');
+        draw();
+      }
+
+      function gameOver() {
+        state = STATE.OVER;
+        if (score > best) {
+          best = score;
+          localStorage.setItem(BEST_KEY, String(best));
+          bestEl.textContent = best;
+        }
+        logResult(score);
+        overlayTitle.textContent = 'Game Over';
+        overlayText.textContent = `Score: ${score}  ·  Best: ${best}`;
+        overlay.classList.remove('hidden');
+      }
+
+      function update() {
+        if (state !== STATE.PLAYING) return;
+
+        frame += 1;
+        bird.velocity += GRAVITY;
+        bird.y += bird.velocity;
+
+        if (
+          pipes.length === 0 ||
+          pipes[pipes.length - 1].x <= WIDTH - PIPE_SPACING
+        ) {
+          spawnPipe();
+        }
+
+        for (const pipe of pipes) {
+          pipe.x -= PIPE_SPEED;
+
+          if (!pipe.scored && pipe.x + PIPE_WIDTH < bird.x) {
+            pipe.scored = true;
+            score += 1;
+            scoreEl.textContent = score;
+          }
+
+          if (collides(pipe)) {
+            gameOver();
+            return;
+          }
+        }
+
+        pipes = pipes.filter((pipe) => pipe.x + PIPE_WIDTH > 0);
+
+        const floor = HEIGHT - GROUND_HEIGHT - BIRD_RADIUS;
+        if (bird.y >= floor) {
+          bird.y = floor;
+          gameOver();
+          return;
+        }
+        if (bird.y - BIRD_RADIUS <= 0) {
+          bird.y = BIRD_RADIUS;
+          bird.velocity = 0;
+        }
+      }
+
+      function collides(pipe) {
+        const inX =
+          bird.x + BIRD_RADIUS > pipe.x &&
+          bird.x - BIRD_RADIUS < pipe.x + PIPE_WIDTH;
+        if (!inX) return false;
+        const gapTop = pipe.top;
+        const gapBottom = pipe.top + PIPE_GAP;
+        return bird.y - BIRD_RADIUS < gapTop || bird.y + BIRD_RADIUS > gapBottom;
+      }
+
+      function drawPipe(pipe) {
+        const gapBottom = pipe.top + PIPE_GAP;
+        ctx.fillStyle = '#5cb800';
+        ctx.strokeStyle = '#3a7a00';
+        ctx.lineWidth = 2;
+        // Top pipe
+        ctx.fillRect(pipe.x, 0, PIPE_WIDTH, pipe.top);
+        ctx.strokeRect(pipe.x, 0, PIPE_WIDTH, pipe.top);
+        ctx.fillRect(pipe.x - 4, pipe.top - 18, PIPE_WIDTH + 8, 18);
+        ctx.strokeRect(pipe.x - 4, pipe.top - 18, PIPE_WIDTH + 8, 18);
+        // Bottom pipe
+        const bottomHeight = HEIGHT - GROUND_HEIGHT - gapBottom;
+        ctx.fillRect(pipe.x, gapBottom, PIPE_WIDTH, bottomHeight);
+        ctx.strokeRect(pipe.x, gapBottom, PIPE_WIDTH, bottomHeight);
+        ctx.fillRect(pipe.x - 4, gapBottom, PIPE_WIDTH + 8, 18);
+        ctx.strokeRect(pipe.x - 4, gapBottom, PIPE_WIDTH + 8, 18);
+      }
+
+      function drawBird() {
+        ctx.save();
+        ctx.translate(bird.x, bird.y);
+        const angle = Math.max(-0.5, Math.min(1.0, bird.velocity / 12));
+        ctx.rotate(angle);
+
+        // Body
+        ctx.fillStyle = '#ffd33d';
+        ctx.strokeStyle = '#d49b00';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, BIRD_RADIUS, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+
+        // Wing
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.ellipse(-3, 2, 6, 4, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Eye
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.arc(6, -5, 4, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#000';
+        ctx.beginPath();
+        ctx.arc(7, -5, 2, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Beak
+        ctx.fillStyle = '#ff7a00';
+        ctx.beginPath();
+        ctx.moveTo(BIRD_RADIUS - 2, -2);
+        ctx.lineTo(BIRD_RADIUS + 8, 0);
+        ctx.lineTo(BIRD_RADIUS - 2, 4);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.restore();
+      }
+
+      function draw() {
+        // Sky
+        ctx.fillStyle = '#4ec0ca';
+        ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+        for (const pipe of pipes) {
+          drawPipe(pipe);
+        }
+
+        // Ground
+        ctx.fillStyle = '#ded895';
+        ctx.fillRect(0, HEIGHT - GROUND_HEIGHT, WIDTH, GROUND_HEIGHT);
+        ctx.fillStyle = '#5cb800';
+        ctx.fillRect(0, HEIGHT - GROUND_HEIGHT, WIDTH, 12);
+
+        drawBird();
+      }
+
+      function loop() {
+        update();
+        draw();
+        requestAnimationFrame(loop);
+      }
+
+      // --- Results log ---
+      const statGames = document.getElementById('stat-games');
+      const statBest = document.getElementById('stat-best');
+      const statAvg = document.getElementById('stat-avg');
+      const chart = document.getElementById('results-chart');
+      const chartCtx = chart.getContext('2d');
+      const exportBtn = document.getElementById('export-csv');
+      const clearBtn = document.getElementById('clear-log');
+
+      function loadResults() {
+        try {
+          const raw = JSON.parse(localStorage.getItem(LOG_KEY));
+          return Array.isArray(raw) ? raw : [];
+        } catch (err) {
+          return [];
+        }
+      }
+
+      function logResult(value) {
+        results.push({ time: new Date().toISOString(), score: value });
+        localStorage.setItem(LOG_KEY, JSON.stringify(results));
+        renderResults();
+      }
+
+      function renderStats() {
+        const games = results.length;
+        statGames.textContent = games;
+        if (games === 0) {
+          statBest.textContent = 0;
+          statAvg.textContent = 0;
+          return;
+        }
+        const scores = results.map((r) => r.score);
+        statBest.textContent = Math.max(...scores);
+        const avg = scores.reduce((a, b) => a + b, 0) / games;
+        statAvg.textContent = avg.toFixed(1);
+      }
+
+      function buildBins(scores) {
+        const maxScore = Math.max(...scores);
+        // Choose a bin width that keeps the bar count reasonable.
+        const targetBins = 20;
+        let binWidth = Math.ceil((maxScore + 1) / targetBins);
+        if (binWidth < 1) binWidth = 1;
+        const binCount = Math.floor(maxScore / binWidth) + 1;
+        const bins = [];
+        for (let i = 0; i < binCount; i += 1) {
+          const lo = i * binWidth;
+          const hi = lo + binWidth - 1;
+          bins.push({ lo, hi, label: binWidth === 1 ? String(lo) : `${lo}-${hi}`, count: 0 });
+        }
+        for (const s of scores) {
+          bins[Math.floor(s / binWidth)].count += 1;
+        }
+        return bins;
+      }
+
+      function renderChart() {
+        const w = chart.width;
+        const h = chart.height;
+        chartCtx.clearRect(0, 0, w, h);
+        chartCtx.fillStyle = '#1c1c1c';
+        chartCtx.fillRect(0, 0, w, h);
+
+        const pad = { left: 26, right: 8, top: 10, bottom: 24 };
+        const plotW = w - pad.left - pad.right;
+        const plotH = h - pad.top - pad.bottom;
+
+        if (results.length === 0) {
+          chartCtx.fillStyle = '#888';
+          chartCtx.font = '12px Arial, sans-serif';
+          chartCtx.textAlign = 'center';
+          chartCtx.fillText('No games played yet', w / 2, h / 2);
+          return;
+        }
+
+        const scores = results.map((r) => r.score);
+        const bins = buildBins(scores);
+        const maxCount = Math.max(...bins.map((b) => b.count), 1);
+
+        // Axes
+        chartCtx.strokeStyle = '#8884';
+        chartCtx.lineWidth = 1;
+        chartCtx.beginPath();
+        chartCtx.moveTo(pad.left, pad.top);
+        chartCtx.lineTo(pad.left, pad.top + plotH);
+        chartCtx.lineTo(pad.left + plotW, pad.top + plotH);
+        chartCtx.stroke();
+
+        // Y-axis labels (0 and max count)
+        chartCtx.fillStyle = '#999';
+        chartCtx.font = '10px Arial, sans-serif';
+        chartCtx.textAlign = 'right';
+        chartCtx.textBaseline = 'middle';
+        chartCtx.fillText('0', pad.left - 4, pad.top + plotH);
+        chartCtx.fillText(String(maxCount), pad.left - 4, pad.top);
+
+        // Bars
+        const n = bins.length;
+        const slot = plotW / n;
+        const barW = Math.max(2, slot * (n > 12 ? 0.82 : 0.7));
+        // When bars get narrow, only label every Nth bin so text doesn't overlap.
+        const labelStep = Math.ceil((n * 22) / plotW);
+        chartCtx.textBaseline = 'alphabetic';
+        bins.forEach((bin, i) => {
+          const barH = (plotH * bin.count) / maxCount;
+          const bx = pad.left + slot * i + (slot - barW) / 2;
+          const by = pad.top + plotH - barH;
+          chartCtx.fillStyle = '#ffd33d';
+          chartCtx.fillRect(bx, by, barW, barH);
+
+          // Count above the bar (skip when too narrow to read)
+          if (bin.count > 0 && labelStep === 1) {
+            chartCtx.fillStyle = '#eee';
+            chartCtx.textAlign = 'center';
+            chartCtx.fillText(String(bin.count), bx + barW / 2, by - 3);
+          }
+
+          // Bin label under the axis (thinned out when crowded)
+          if (i % labelStep === 0) {
+            chartCtx.fillStyle = '#999';
+            chartCtx.textAlign = 'center';
+            chartCtx.fillText(bin.label, pad.left + slot * i + slot / 2, pad.top + plotH + 12);
+          }
+        });
+
+        // X-axis label
+        chartCtx.fillStyle = '#999';
+        chartCtx.textAlign = 'center';
+        chartCtx.fillText('score', pad.left + plotW / 2, h - 4);
+      }
+
+      function renderResults() {
+        renderStats();
+        renderChart();
+        exportBtn.disabled = results.length === 0;
+        clearBtn.disabled = results.length === 0;
+      }
+
+      function exportCsv() {
+        if (results.length === 0) return;
+        const rows = [['attempt', 'timestamp', 'score']];
+        results.forEach((r, i) => {
+          rows.push([i + 1, r.time, r.score]);
+        });
+        const csv = rows.map((row) => row.join(',')).join('\n');
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'flappy-bird-results.csv';
+        link.click();
+        URL.revokeObjectURL(url);
+      }
+
+      function clearLog() {
+        if (!confirm('Clear the entire results log?')) return;
+        results = [];
+        localStorage.removeItem(LOG_KEY);
+        renderResults();
+      }
+
+      exportBtn.addEventListener('click', exportCsv);
+      clearBtn.addEventListener('click', clearLog);
+
+      // Input handling
+      function onPress(event) {
+        event.preventDefault();
+        flap();
+      }
+
+      window.addEventListener('keydown', (event) => {
+        if (event.code === 'Space' || event.code === 'ArrowUp') {
+          event.preventDefault();
+          flap();
+        }
+      });
+
+      canvas.addEventListener('mousedown', onPress);
+      canvas.addEventListener('touchstart', onPress, { passive: false });
+      overlay.addEventListener('mousedown', onPress);
+      overlay.addEventListener('touchstart', onPress, { passive: false });
+
+      reset();
+      draw();
+      renderResults();
+      loop();
+    </script>
+  </body>
+</html>
