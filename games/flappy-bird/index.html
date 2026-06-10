@@ -461,7 +461,7 @@
       function buildBins(scores) {
         const maxScore = Math.max(...scores);
         // Choose a bin width that keeps the bar count reasonable.
-        const targetBins = 8;
+        const targetBins = 20;
         let binWidth = Math.ceil((maxScore + 1) / targetBins);
         if (binWidth < 1) binWidth = 1;
         const binCount = Math.floor(maxScore / binWidth) + 1;
@@ -520,7 +520,9 @@
         // Bars
         const n = bins.length;
         const slot = plotW / n;
-        const barW = Math.max(2, slot * 0.7);
+        const barW = Math.max(2, slot * (n > 12 ? 0.82 : 0.7));
+        // When bars get narrow, only label every Nth bin so text doesn't overlap.
+        const labelStep = Math.ceil((n * 22) / plotW);
         chartCtx.textBaseline = 'alphabetic';
         bins.forEach((bin, i) => {
           const barH = (plotH * bin.count) / maxCount;
@@ -529,17 +531,19 @@
           chartCtx.fillStyle = '#ffd33d';
           chartCtx.fillRect(bx, by, barW, barH);
 
-          // Count above the bar
-          if (bin.count > 0) {
+          // Count above the bar (skip when too narrow to read)
+          if (bin.count > 0 && labelStep === 1) {
             chartCtx.fillStyle = '#eee';
             chartCtx.textAlign = 'center';
             chartCtx.fillText(String(bin.count), bx + barW / 2, by - 3);
           }
 
-          // Bin label under the axis
-          chartCtx.fillStyle = '#999';
-          chartCtx.textAlign = 'center';
-          chartCtx.fillText(bin.label, pad.left + slot * i + slot / 2, pad.top + plotH + 12);
+          // Bin label under the axis (thinned out when crowded)
+          if (i % labelStep === 0) {
+            chartCtx.fillStyle = '#999';
+            chartCtx.textAlign = 'center';
+            chartCtx.fillText(bin.label, pad.left + slot * i + slot / 2, pad.top + plotH + 12);
+          }
         });
 
         // X-axis label
