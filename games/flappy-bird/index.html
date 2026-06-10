@@ -85,6 +85,67 @@
         font-size: 1.4rem;
       }
 
+      .results {
+        width: 100%;
+        max-width: 360px;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+      }
+
+      .results-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 0.5rem;
+      }
+
+      .results-header h2 {
+        margin: 0;
+        font-size: 1.1rem;
+      }
+
+      .results-stats {
+        display: flex;
+        gap: 1rem;
+        font-size: 0.85rem;
+        opacity: 0.9;
+        flex-wrap: wrap;
+      }
+
+      #results-chart {
+        width: 100%;
+        height: auto;
+        background: #1c1c1c;
+        border: 1px solid #8884;
+        border-radius: 0.5rem;
+      }
+
+      .results-actions {
+        display: flex;
+        gap: 0.5rem;
+      }
+
+      .results-actions button {
+        flex: 1;
+        padding: 0.4rem 0.6rem;
+        font-size: 0.85rem;
+        background: #2a2a2a;
+        color: #eee;
+        border: 1px solid #8884;
+        border-radius: 0.4rem;
+        cursor: pointer;
+      }
+
+      .results-actions button:hover {
+        background: #383838;
+      }
+
+      .results-actions button:disabled {
+        opacity: 0.4;
+        cursor: default;
+      }
+
       a {
         color: #8ad;
       }
@@ -107,6 +168,22 @@
         <p class="hint">Click here to start.</p>
       </div>
     </div>
+
+    <section class="results">
+      <div class="results-header">
+        <h2>Results log</h2>
+      </div>
+      <div class="results-stats">
+        <span>Games: <strong id="stat-games">0</strong></span>
+        <span>Best: <strong id="stat-best">0</strong></span>
+        <span>Average: <strong id="stat-avg">0</strong></span>
+      </div>
+      <canvas id="results-chart" width="360" height="160"></canvas>
+      <div class="results-actions">
+        <button id="export-csv" type="button">Download CSV</button>
+        <button id="clear-log" type="button">Clear log</button>
+      </div>
+    </section>
 
     <p><a href="/">Back to library</a></p>
 
@@ -136,6 +213,7 @@
       const STATE = { READY: 'ready', PLAYING: 'playing', OVER: 'over' };
 
       const BEST_KEY = 'flappy-bird-best';
+      const LOG_KEY = 'flappy-bird-results';
 
       let state = STATE.READY;
       let bird;
@@ -143,6 +221,7 @@
       let score;
       let frame;
       let best = Number(localStorage.getItem(BEST_KEY)) || 0;
+      let results = loadResults();
 
       bestEl.textContent = best;
 
@@ -197,6 +276,7 @@
           localStorage.setItem(BEST_KEY, String(best));
           bestEl.textContent = best;
         }
+        logResult(score);
         overlayTitle.textContent = 'Game Over';
         overlayText.textContent = `Score: ${score}  ·  Best: ${best}`;
         overlay.classList.remove('hidden');
@@ -340,6 +420,149 @@
         requestAnimationFrame(loop);
       }
 
+      // --- Results log ---
+      const statGames = document.getElementById('stat-games');
+      const statBest = document.getElementById('stat-best');
+      const statAvg = document.getElementById('stat-avg');
+      const chart = document.getElementById('results-chart');
+      const chartCtx = chart.getContext('2d');
+      const exportBtn = document.getElementById('export-csv');
+      const clearBtn = document.getElementById('clear-log');
+
+      function loadResults() {
+        try {
+          const raw = JSON.parse(localStorage.getItem(LOG_KEY));
+          return Array.isArray(raw) ? raw : [];
+        } catch (err) {
+          return [];
+        }
+      }
+
+      function logResult(value) {
+        results.push({ time: new Date().toISOString(), score: value });
+        localStorage.setItem(LOG_KEY, JSON.stringify(results));
+        renderResults();
+      }
+
+      function renderStats() {
+        const games = results.length;
+        statGames.textContent = games;
+        if (games === 0) {
+          statBest.textContent = 0;
+          statAvg.textContent = 0;
+          return;
+        }
+        const scores = results.map((r) => r.score);
+        statBest.textContent = Math.max(...scores);
+        const avg = scores.reduce((a, b) => a + b, 0) / games;
+        statAvg.textContent = avg.toFixed(1);
+      }
+
+      function renderChart() {
+        const w = chart.width;
+        const h = chart.height;
+        chartCtx.clearRect(0, 0, w, h);
+        chartCtx.fillStyle = '#1c1c1c';
+        chartCtx.fillRect(0, 0, w, h);
+
+        const pad = { left: 26, right: 8, top: 10, bottom: 18 };
+        const plotW = w - pad.left - pad.right;
+        const plotH = h - pad.top - pad.bottom;
+
+        if (results.length === 0) {
+          chartCtx.fillStyle = '#888';
+          chartCtx.font = '12px Arial, sans-serif';
+          chartCtx.textAlign = 'center';
+          chartCtx.fillText('No games played yet', w / 2, h / 2);
+          return;
+        }
+
+        const scores = results.map((r) => r.score);
+        const maxScore = Math.max(...scores, 1);
+
+        // Axes
+        chartCtx.strokeStyle = '#8884';
+        chartCtx.lineWidth = 1;
+        chartCtx.beginPath();
+        chartCtx.moveTo(pad.left, pad.top);
+        chartCtx.lineTo(pad.left, pad.top + plotH);
+        chartCtx.lineTo(pad.left + plotW, pad.top + plotH);
+        chartCtx.stroke();
+
+        // Y-axis labels (0 and max)
+        chartCtx.fillStyle = '#999';
+        chartCtx.font = '10px Arial, sans-serif';
+        chartCtx.textAlign = 'right';
+        chartCtx.textBaseline = 'middle';
+        chartCtx.fillText('0', pad.left - 4, pad.top + plotH);
+        chartCtx.fillText(String(maxScore), pad.left - 4, pad.top);
+
+        const n = scores.length;
+        const x = (i) => pad.left + (n === 1 ? plotW / 2 : (plotW * i) / (n - 1));
+        const y = (s) => pad.top + plotH - (plotH * s) / maxScore;
+
+        // Line connecting attempts
+        if (n > 1) {
+          chartCtx.strokeStyle = '#4ec0ca';
+          chartCtx.lineWidth = 2;
+          chartCtx.beginPath();
+          scores.forEach((s, i) => {
+            const px = x(i);
+            const py = y(s);
+            if (i === 0) chartCtx.moveTo(px, py);
+            else chartCtx.lineTo(px, py);
+          });
+          chartCtx.stroke();
+        }
+
+        // Points
+        chartCtx.fillStyle = '#ffd33d';
+        scores.forEach((s, i) => {
+          chartCtx.beginPath();
+          chartCtx.arc(x(i), y(s), n > 60 ? 1.5 : 3, 0, Math.PI * 2);
+          chartCtx.fill();
+        });
+
+        // X-axis label
+        chartCtx.fillStyle = '#999';
+        chartCtx.textAlign = 'center';
+        chartCtx.textBaseline = 'alphabetic';
+        chartCtx.fillText('attempts →', pad.left + plotW / 2, h - 4);
+      }
+
+      function renderResults() {
+        renderStats();
+        renderChart();
+        exportBtn.disabled = results.length === 0;
+        clearBtn.disabled = results.length === 0;
+      }
+
+      function exportCsv() {
+        if (results.length === 0) return;
+        const rows = [['attempt', 'timestamp', 'score']];
+        results.forEach((r, i) => {
+          rows.push([i + 1, r.time, r.score]);
+        });
+        const csv = rows.map((row) => row.join(',')).join('\n');
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'flappy-bird-results.csv';
+        link.click();
+        URL.revokeObjectURL(url);
+      }
+
+      function clearLog() {
+        if (!confirm('Clear the entire results log?')) return;
+        results = [];
+        localStorage.removeItem(LOG_KEY);
+        renderResults();
+      }
+
+      exportBtn.addEventListener('click', exportCsv);
+      clearBtn.addEventListener('click', clearLog);
+
       // Input handling
       function onPress(event) {
         event.preventDefault();
@@ -360,6 +583,7 @@
 
       reset();
       draw();
+      renderResults();
       loop();
     </script>
   </body>
