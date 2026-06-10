@@ -458,6 +458,25 @@
         statAvg.textContent = avg.toFixed(1);
       }
 
+      function buildBins(scores) {
+        const maxScore = Math.max(...scores);
+        // Choose a bin width that keeps the bar count reasonable.
+        const targetBins = 8;
+        let binWidth = Math.ceil((maxScore + 1) / targetBins);
+        if (binWidth < 1) binWidth = 1;
+        const binCount = Math.floor(maxScore / binWidth) + 1;
+        const bins = [];
+        for (let i = 0; i < binCount; i += 1) {
+          const lo = i * binWidth;
+          const hi = lo + binWidth - 1;
+          bins.push({ lo, hi, label: binWidth === 1 ? String(lo) : `${lo}-${hi}`, count: 0 });
+        }
+        for (const s of scores) {
+          bins[Math.floor(s / binWidth)].count += 1;
+        }
+        return bins;
+      }
+
       function renderChart() {
         const w = chart.width;
         const h = chart.height;
@@ -465,7 +484,7 @@
         chartCtx.fillStyle = '#1c1c1c';
         chartCtx.fillRect(0, 0, w, h);
 
-        const pad = { left: 26, right: 8, top: 10, bottom: 18 };
+        const pad = { left: 26, right: 8, top: 10, bottom: 24 };
         const plotW = w - pad.left - pad.right;
         const plotH = h - pad.top - pad.bottom;
 
@@ -478,7 +497,8 @@
         }
 
         const scores = results.map((r) => r.score);
-        const maxScore = Math.max(...scores, 1);
+        const bins = buildBins(scores);
+        const maxCount = Math.max(...bins.map((b) => b.count), 1);
 
         // Axes
         chartCtx.strokeStyle = '#8884';
@@ -489,45 +509,43 @@
         chartCtx.lineTo(pad.left + plotW, pad.top + plotH);
         chartCtx.stroke();
 
-        // Y-axis labels (0 and max)
+        // Y-axis labels (0 and max count)
         chartCtx.fillStyle = '#999';
         chartCtx.font = '10px Arial, sans-serif';
         chartCtx.textAlign = 'right';
         chartCtx.textBaseline = 'middle';
         chartCtx.fillText('0', pad.left - 4, pad.top + plotH);
-        chartCtx.fillText(String(maxScore), pad.left - 4, pad.top);
+        chartCtx.fillText(String(maxCount), pad.left - 4, pad.top);
 
-        const n = scores.length;
-        const x = (i) => pad.left + (n === 1 ? plotW / 2 : (plotW * i) / (n - 1));
-        const y = (s) => pad.top + plotH - (plotH * s) / maxScore;
+        // Bars
+        const n = bins.length;
+        const slot = plotW / n;
+        const barW = Math.max(2, slot * 0.7);
+        chartCtx.textBaseline = 'alphabetic';
+        bins.forEach((bin, i) => {
+          const barH = (plotH * bin.count) / maxCount;
+          const bx = pad.left + slot * i + (slot - barW) / 2;
+          const by = pad.top + plotH - barH;
+          chartCtx.fillStyle = '#ffd33d';
+          chartCtx.fillRect(bx, by, barW, barH);
 
-        // Line connecting attempts
-        if (n > 1) {
-          chartCtx.strokeStyle = '#4ec0ca';
-          chartCtx.lineWidth = 2;
-          chartCtx.beginPath();
-          scores.forEach((s, i) => {
-            const px = x(i);
-            const py = y(s);
-            if (i === 0) chartCtx.moveTo(px, py);
-            else chartCtx.lineTo(px, py);
-          });
-          chartCtx.stroke();
-        }
+          // Count above the bar
+          if (bin.count > 0) {
+            chartCtx.fillStyle = '#eee';
+            chartCtx.textAlign = 'center';
+            chartCtx.fillText(String(bin.count), bx + barW / 2, by - 3);
+          }
 
-        // Points
-        chartCtx.fillStyle = '#ffd33d';
-        scores.forEach((s, i) => {
-          chartCtx.beginPath();
-          chartCtx.arc(x(i), y(s), n > 60 ? 1.5 : 3, 0, Math.PI * 2);
-          chartCtx.fill();
+          // Bin label under the axis
+          chartCtx.fillStyle = '#999';
+          chartCtx.textAlign = 'center';
+          chartCtx.fillText(bin.label, pad.left + slot * i + slot / 2, pad.top + plotH + 12);
         });
 
         // X-axis label
         chartCtx.fillStyle = '#999';
         chartCtx.textAlign = 'center';
-        chartCtx.textBaseline = 'alphabetic';
-        chartCtx.fillText('attempts →', pad.left + plotW / 2, h - 4);
+        chartCtx.fillText('score', pad.left + plotW / 2, h - 4);
       }
 
       function renderResults() {
